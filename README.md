@@ -15,3 +15,6 @@ You can then do the following:
 ```
 
 If there are more fixed columns on your sheets, you would add them after SSN on the array so as not to have the data repeated on your output file.
+
+The output file will concatenate all columns from your sheets which are not in the 'fixed_column' section.
+To be able to easily tell them apart, it will prepend the sheet's number on each column.
