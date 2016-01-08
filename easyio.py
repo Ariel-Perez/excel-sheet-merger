@@ -1,27 +1,57 @@
 #!/usr/bin/python
 # -*- coding: utf8 -*-
-import glob
 import codecs
+import os
+import ntpath
 
 
-def get_files(path, extensions=None):
+def get_files(path, extensions='*'):
     """
     Gets the paths to files in a given path
     """
     if path[-1] is not '/' and path[-1] is not '\\':
         path = path + '/'
 
-    return glob.glob('%s*%s' % (path, ('[%s]' % '||'.join(extensions))
-                     if extensions is not None else ''))
+    if isinstance(extensions, str) or isinstance(extensions, unicode):
+        extensions = [extensions]
+
+    all_files = [os.path.join(root, filename)
+                 for root, dirnames, filenames in os.walk(path)
+                 for filename in filenames]
+
+    filtered_files = [
+        filename for filename in all_files
+        if get_extension(filename) in extensions or '*' in extensions
+    ]
+
+    return filtered_files
+
+
+def path_leaf(path):
+    """
+    Gets the file name (without path) from a full path
+    """
+    head, tail = ntpath.split(path)
+    return tail or ntpath.basename(head)
+
+
+def get_extension(path):
+    """
+    Gets the extension of a file
+
+    >>> path = 'dir/file.txt'
+    >>> get_extension(path)
+    '.txt'
+    """
+    return os.path.splitext(path)[1]
 
 
 def write_file(path, content):
     """
     Writes the content to a file
     """
-    with open(path, 'w') as f:
-        encoded_content = content.encode('utf-8')
-        f.write(encoded_content)
+    with codecs.open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
 
 
 def read_file(path):
@@ -29,12 +59,12 @@ def read_file(path):
     Retrieves the content of a file
     """
     with codecs.open(path, encoding='utf-8') as f:
-        text = f.read()
+        text = f.read().replace('\r', '')
 
     return text
 
 
-def flatten(arr):
+def flatten(arr, separator=','):
     """
     Flattens arrays of arrays of arrays.....
     To just comma separated values
@@ -47,10 +77,10 @@ def flatten(arr):
         return unicode(arr)
 
     else:
-        return ','.join([flatten(x) for x in arr])
+        return separator.join([flatten(x) for x in arr])
 
 
-def quote(data):
+def quote(data, separator=','):
     """
     Encloses all values in a CSV in doble quotes.
 
@@ -58,7 +88,7 @@ def quote(data):
     >>> quote(d)
     '"Hello"," world"'
     """
-    return '"%s"' % data.replace(',', '","')
+    return '"%s"' % data.replace(separator, '"%s"' % separator)
 
 
 def unquote(data):
@@ -75,7 +105,7 @@ def unquote(data):
     return data
 
 
-def split(line):
+def split(line, separator=','):
     """
     Splits a line of CSV into its values and unquotes it.
 
@@ -83,7 +113,7 @@ def split(line):
     >>> split(line)
     ['Hello', 'world']
     """
-    data = line.split(',')
+    data = line.split(separator)
     return [unquote(x) for x in data]
 
 
@@ -92,6 +122,8 @@ def match(text, possibilities):
     Match a text to one of the possible options
     Accepts minor mismatches such as pluralization with appended 's'
     and lower/upper casing
+
+    Returns -1 if no match is found
 
     >>> text = 'Penguin'
     >>> possibilities = ['penguin']
@@ -121,6 +153,14 @@ def match(text, possibilities):
             return lower_poss.index(lower_text + 's')
 
     return -1
+
+
+def remove(paths):
+    """
+    Removes all files in the given array
+    """
+    for path in paths:
+        os.remove(path)
 
 
 def test():
