@@ -138,19 +138,19 @@ def match(text, possibilities):
     >>> match(text, possibilities)
     -1
     """
-    lower_poss = [x.lower() for x in possibilities]
-    lower_text = text.lower()
+    possibilities = [unicode(x.strip().lower()) for x in possibilities]
+    text = unicode(text.strip().lower())
 
-    if lower_text in lower_poss:
-        return lower_poss.index(lower_text)
+    if text in possibilities:
+        return possibilities.index(text)
 
-    if len(lower_text) > 0 and lower_text[-1] == 's':
-        if(lower_text[:-1] in lower_poss):
-            return lower_poss.index(lower_text[:-1])
+    if len(text) > 0 and text[-1] == u's':
+        if(text[:-1] in possibilities):
+            return possibilities.index(text[:-1])
 
-    if len(lower_text) > 0 and lower_text[-1] != 's':
-        if(lower_text + 's' in lower_poss):
-            return lower_poss.index(lower_text + 's')
+    if len(text) > 0 and text[-1] != u's':
+        if(text + u's' in possibilities):
+            return possibilities.index(text + u's')
 
     return -1
 

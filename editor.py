@@ -27,6 +27,9 @@ class Editor:
             lambda path, content:
                 self._add_column(path, content, header, value(path)))
 
+    def remove_empty_columns_in_processing(self):
+        self.processing_steps.append(self._remove_empty_columns)
+
     def trim_in_processing(self):
         self.processing_steps.append(self._trim)
 
@@ -35,10 +38,17 @@ class Editor:
             lambda path, content:
                 self._set_headers(path, content, headers_dict))
 
-    def collapse_headers_in_processing(self, fixed_columns):
+    def collapse_headers_in_processing(self,
+                                       fixed_columns,
+                                       optional_columns,
+                                       ignore_columns):
         self.processing_steps.append(
             lambda path, content:
-                self._collapse_headers(path, content, fixed_columns))
+                self._collapse_headers(path,
+                                       content,
+                                       fixed_columns,
+                                       optional_columns,
+                                       ignore_columns))
 
     def expand_rows_in_processing(self):
         self.processing_steps.append(self._expand_rows)
@@ -66,21 +76,13 @@ class Editor:
 
     def _trim(self, path, content):
         lines = content.split('\n')
-        content_start = -1
-        content_length = 0
 
-        for i in range(len(lines)):
-            if not self.empty.match(lines[i]):
-                if content_length == 0:
-                    content_start = i
-                content_length += 1
+        new_lines = []
+        for line in lines:
+            if not self.empty.match(line):
+                new_lines.append(line)
 
-            if self.empty.match(lines[i]):
-                if content_length > 1:
-                    break
-                content_length = 0
-
-        lines = lines[content_start:content_start + content_length]
+        lines = new_lines
         content = '\n'.join(lines)
         return content
 
@@ -88,23 +90,26 @@ class Editor:
         lines = content.split('\n')
         current_headers = easyio.split(lines[0], self.separator)
         for key in headers_dict:
-            while key >= len(current_headers):
-                current_headers.append('')
-
-            current_headers[key] = headers_dict[key]
+            if key < len(current_headers):
+                current_headers[key] = headers_dict[key]
 
         lines[0] = easyio.quote(self.separator.join(current_headers),
                                 self.separator)
         content = '\n'.join(lines)
         return content
 
-    def _collapse_headers(self, path, content, fixed_columns):
+    def _collapse_headers(self, path, content,
+                          fixed_columns, optional_columns, ignore_columns):
         lines = content.split('\n')
 
         current_headers = ['' for header in
                            easyio.split(lines[0], self.separator)]
+
+        columns = fixed_columns[:] + optional_columns[:]
+
         column_lock = [False] * len(current_headers)
-        header_ok = [False] * len(fixed_columns)
+        header_ok = [False] * len(fixed_columns) +\
+            [True] * len(optional_columns)
 
         while not all(header_ok):
             if len(lines) == 0:
@@ -113,7 +118,7 @@ class Editor:
             new_headers = easyio.split(lines[0], self.separator)
             lines = lines[1:]
 
-            for i in range(len(new_headers)):
+            for i, header in enumerate(new_headers):
                 if column_lock[i]:
                     continue
 
@@ -121,18 +126,22 @@ class Editor:
                 # if i > 0 and new_headers[i] == '':
                 #     new_headers[i] = new_headers[i - 1]
 
-                match = easyio.match(new_headers[i], fixed_columns)
+                match = easyio.match(header, columns)
                 if match != -1:
-                    current_headers[i] = new_headers[i]
+                    current_headers[i] = header
                     header_ok[match] = True
                     column_lock[i] = True
+                elif easyio.match(current_headers[i], ignore_columns) != -1:
+                        column_lock[i] = True
                 else:
                     current_headers[i] =\
-                        (current_headers[i] + ' ' + new_headers[i]).strip()
+                        (current_headers[i] + ' ' + header).strip()
 
-                    match = easyio.match(current_headers[i], fixed_columns)
+                    match = easyio.match(current_headers[i], columns)
                     if match != -1:
                         header_ok[match] = True
+                        column_lock[i] = True
+                    if easyio.match(current_headers[i], ignore_columns) != -1:
                         column_lock[i] = True
 
         lines.insert(0, easyio.quote(self.separator.join(current_headers),
@@ -168,4 +177,22 @@ class Editor:
             lines[i] = easyio.quote(self.separator.join(data), self.separator)
 
         content = '\n'.join(lines)
+        return content
+
+    def _remove_empty_columns(self, path, content):
+        lines = content.split('\n')
+        all_data = [easyio.split(line, self.separator) for line in lines]
+        has_content = set()
+        for data in all_data:
+            for i in range(len(data)):
+                if len(data[i].strip()) > 0:
+                    has_content.add(i)
+
+        new_lines = []
+        for data in all_data:
+            new_data = [data[i] for i in range(len(data)) if i in has_content]
+            new_lines.append(easyio.quote(self.separator.join(new_data),
+                                          self.separator))
+
+        content = '\n'.join(new_lines)
         return content

@@ -7,13 +7,15 @@ class Merger:
     def __init__(self,
                  separator=',',
                  fixed_columns=[],
-                 ignore_columns=[]):
+                 ignore_columns=[],
+                 merge_columns=[]):
         """
         Initializes an instance of Merger
         """
         self.separator = separator
         self.fixed_columns = fixed_columns
         self.ignore_columns = ignore_columns
+        self.merge_columns = merge_columns
 
     def merge_folder(self, folder_path, output_path):
         """
@@ -23,10 +25,9 @@ class Merger:
         files = easyio.get_files(folder_path, '.csv')
         self.merge_files(files, output_path)
 
-    def get_columns_and_data(self, file):
+    def get_headers_and_data(self, file):
         """
-        Gets the column names, the remaining data and the indices
-        for each column
+        Gets the column names and the remaining data
         """
         content = easyio.read_file(file)
         lines = content.split('\n')
@@ -35,9 +36,20 @@ class Merger:
         lines = [easyio.split(line, self.separator)
                  for line in lines[1:] if line != '']
 
-        fixed_column_indices = [easyio.match(c, headers)
-                                for c in self.fixed_columns]
-        return headers, lines, fixed_column_indices
+        return headers, lines
+
+    def build_indices(self, headers, lookups):
+        """
+        Gets a dictionary (column: match_id)
+        for all columns with a match (!= -1)
+        """
+        matches = {}
+        for i, header in enumerate(headers):
+            match = easyio.match(header, lookups)
+            if match != -1:
+                matches[match] = i
+
+        return matches
 
     def merge_files(self, files, output):
         """
@@ -46,22 +58,38 @@ class Merger:
         Leaves output csv at output argument
         """
         data = {}
+        merged_data = {}
         columns = []
 
         # For each file
-        for idx in range(len(files)):
-            # Get columns, lines and indices
-            file_columns, lines, fixed_column_indices =\
-                self.get_columns_and_data(files[idx])
+        for idx, path in enumerate(files):
+            # Split content in headers and data
+            headers, lines = self.get_headers_and_data(path)
 
-            # Get indices for new data
-            new_column_indices = [i for i in range(len(file_columns))
-                                  if i not in fixed_column_indices]
+            # Indices
+            fixed_column_indices =\
+                self.build_indices(headers, self.fixed_columns)
+            merge_column_indices =\
+                self.build_indices(headers, self.merge_columns)
+            ignore_column_indices =\
+                self.build_indices(headers, self.ignore_columns)
+
+            fixed_indices = fixed_column_indices.values()
+            merge_indices = merge_column_indices.values()
+            ignore_indices = ignore_column_indices.values()
+
+            new_indices = [i for i, x in enumerate(headers)
+                           if i not in fixed_indices
+                           and i not in merge_indices
+                           and i not in ignore_indices]
 
             # Get headers for new data
             new_columns = ["%s - %s" %
-                           (unicode(idx + 1), unicode(file_columns[i]))
-                           for i in new_column_indices]
+                           (unicode(idx + 1), unicode(headers[i]))
+                           for i in new_indices]
+
+            if len(new_columns) > 0:
+                print('ERROR EN FORMATO: %s' % path)
 
             # Append to the definition of all headers
             columns.append(new_columns)
@@ -69,27 +97,42 @@ class Merger:
             # For each line of data
             for line in lines:
                 # Get the unique identifier (append all fixed columns)
-                identifier = ",".join([line[i] if i >= 0 else ""
-                                       for i in fixed_column_indices])
-                new_data = [line[i] for i in new_column_indices]
+                identifier = self.separator.join(
+                    [line[fixed_column_indices[i]]
+                     if i in fixed_column_indices else u''
+                     for i, x in enumerate(self.fixed_columns)])
+
+                merge =\
+                    [line[merge_column_indices[i]]
+                     if i in merge_column_indices else u''
+                     for i, x in enumerate(self.merge_columns)]
+
+                new_data = [line[i] for i in new_indices]
 
                 if identifier not in data:
                     data[identifier] = []
+                    merged_data[identifier] = merge
 
                 # Add the new data
                 data[identifier].append(new_data)
+                for i, x in enumerate(merge):
+                    if len(x) > 0:
+                        merged_data[identifier][i] = x
 
         # Build content for CSV
         lines = []
         lines.append(easyio.quote(
                      easyio.flatten(
-                         [self.fixed_columns, columns], self.separator),
+                         [self.fixed_columns, self.merge_columns, columns],
+                         self.separator),
                      self.separator))
 
         for key in data:
-            lines.append(easyio.quote(
-                key + ',' + easyio.flatten(data[identifier], self.separator),
-                self.separator))
+            lines.append(
+                easyio.quote(
+                    easyio.flatten([key,
+                                    merged_data[key],
+                                    data[key]])))
 
         content = '\n'.join(lines)
 
@@ -116,39 +159,34 @@ if __name__ == '__main__':
     parser.add_argument('--folders',
                         dest='folders',
                         help='Folders to process',
-                        default='')
+                        default=u'')
 
     parser.add_argument('--fixed_columns',
                         dest='fixed_columns',
                         help='Columns to use to match data across sheets',
-                        default='')
+                        default=u'')
 
     parser.add_argument('--ignore_columns',
                         dest='ignore_columns',
                         help='Columns to step over. Not implemented yet',
-                        default='')
+                        default=u'')
 
     parser.add_argument('--separator',
                         dest='separator',
                         help='Separator character for CSV',
-                        default=',')
-
-    parser.add_argument('--termination',
-                        dest='termination',
-                        help='Regexp for termination line',
-                        default='^,*$')
+                        default=u',')
 
     args = parser.parse_args()
     if args.test:
         test()
         exit()
 
-    fixed_columns = [c.strip() for c in args.fixed_columns.split(',')]
-    ignore_columns = [c.strip() for c in args.ignore_columns.split(',')]
+    fixed_columns = [unicode(c.strip()) for c in args.fixed_columns.split(',')]
+    ignore_columns = [unicode(c.strip())
+                      for c in args.ignore_columns.split(',')]
     m = Merger(separator=args.separator,
                fixed_columns=fixed_columns,
-               ignore_columns=ignore_columns,
-               termination=args.termination)
+               ignore_columns=ignore_columns)
 
     folders = args.folders.split(',')
 
