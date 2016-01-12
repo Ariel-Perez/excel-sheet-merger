@@ -9,17 +9,43 @@ class Editor:
         self.separator = separator
         self.empty = re.compile('^("")?(%s("")?)*$' % separator)
         self.processing_steps = []
+        self.skip_files = []
 
     def process(self, folder_path):
+        """
+        Does all the processing on all files on a given folder,
+        except for those explicitly skipped
+        """
+        # All files
         files = easyio.get_files(folder_path, '.csv')
         for path in files:
-            content = easyio.read_file(path)
-            for step in self.processing_steps:
-                content = step(path, content)
+            # No-skip files
+            if path not in self.skip_files:
+                # Each processing step takes as input path and content
+                # and returns the modified content
+                content = easyio.read_file(path)
+                for step in self.processing_steps:
+                    content = step(path, content)
 
-            easyio.write_file(path, content)
+                # The content is written back to the file
+                # at the end of processing
+                easyio.write_file(path, content)
+
+    def skip_files_in_processing(self, files):
+        """
+        Sets files to skip during processing
+        """
+        if not isinstance(files, list):
+            files = [files]
+
+        self.skip_files.extend(files)
 
     def add_columns_in_processing(self, header, regex_pattern):
+        """
+        Adds a column at the end of every file.
+        The header is given by argument, and the value is extracted
+        from the file name using the given regex pattern.
+        """
         regex = re.compile(regex_pattern)
         value = lambda path: regex.search(easyio.path_leaf(path)).group()
 
@@ -28,12 +54,22 @@ class Editor:
                 self._add_column(path, content, header, value(path)))
 
     def remove_empty_columns_in_processing(self):
+        """
+        Remove all empty collumns
+        """
         self.processing_steps.append(self._remove_empty_columns)
 
     def trim_in_processing(self):
+        """
+        Remove empty rows
+        """
         self.processing_steps.append(self._trim)
 
     def set_headers_in_processing(self, headers_dict):
+        """
+        Override the document headers.
+        Receives a dictionary (int, str) with indices and headers
+        """
         self.processing_steps.append(
             lambda path, content:
                 self._set_headers(path, content, headers_dict))
@@ -42,6 +78,14 @@ class Editor:
                                        fixed_columns,
                                        optional_columns,
                                        ignore_columns):
+        """
+        Collapse headers into one row.
+        Will keep collapsing headers until all fixed_columns are found.
+        Every column has its cells merged until either it matches a
+        fixed/optional column or every fixed_column is found.
+
+        If a header matches an ignore_column it is also no longer processed.
+        """
         self.processing_steps.append(
             lambda path, content:
                 self._collapse_headers(path,
@@ -51,14 +95,23 @@ class Editor:
                                        ignore_columns))
 
     def expand_rows_in_processing(self):
+        """
+        Expand rows with empty spaces until they all are the same length
+        """
         self.processing_steps.append(self._expand_rows)
 
     def remove_content_in_processing(self, unwanted_content):
+        """
+        Remove specific content from cells
+        """
         self.processing_steps.append(
             lambda path, content:
                 self._remove_content(path, content, unwanted_content))
 
     def _add_column(self, path, content, header, value):
+        """
+        Internal function to add column
+        """
         lines = content.split('\n')
         if len(lines) > 0:
             lines[0] = self.separator.join([lines[0],
@@ -75,6 +128,9 @@ class Editor:
         return content
 
     def _trim(self, path, content):
+        """
+        Internal function to trim
+        """
         lines = content.split('\n')
 
         new_lines = []
@@ -87,6 +143,9 @@ class Editor:
         return content
 
     def _set_headers(self, path, content, headers_dict):
+        """
+        Internal function to set headers
+        """
         lines = content.split('\n')
         current_headers = easyio.split(lines[0], self.separator)
         for key in headers_dict:
@@ -100,6 +159,9 @@ class Editor:
 
     def _collapse_headers(self, path, content,
                           fixed_columns, optional_columns, ignore_columns):
+        """
+        Internal function to collapse headers
+        """
         lines = content.split('\n')
 
         current_headers = ['' for header in
@@ -150,6 +212,9 @@ class Editor:
         return content
 
     def _expand_rows(self, path, content):
+        """
+        Internal function to expand rows
+        """
         lines = content.split('\n')
         data = []
         max_columns = 0
@@ -168,6 +233,9 @@ class Editor:
         return content
 
     def _remove_content(self, path, content, unwanted_content):
+        """
+        Internal function to remove content
+        """
         lines = content.split('\n')
         for i in range(len(lines)):
             data = easyio.split(lines[i], self.separator)
@@ -180,6 +248,9 @@ class Editor:
         return content
 
     def _remove_empty_columns(self, path, content):
+        """
+        Internal function to remove empty columns
+        """
         lines = content.split('\n')
         all_data = [easyio.split(line, self.separator) for line in lines]
         has_content = set()

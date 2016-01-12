@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf8 -*-
 import easyio
+import re
 
 
 class Merger:
@@ -8,7 +9,9 @@ class Merger:
                  separator=',',
                  fixed_columns=[],
                  ignore_columns=[],
-                 merge_columns=[]):
+                 merge_columns=[],
+                 expect_new_columns=False,
+                 new_columns_regex=''):
         """
         Initializes an instance of Merger
         """
@@ -16,6 +19,8 @@ class Merger:
         self.fixed_columns = fixed_columns
         self.ignore_columns = ignore_columns
         self.merge_columns = merge_columns
+        self.expect_new_columns = expect_new_columns
+        self.new_columns_regex = re.compile(new_columns_regex)
 
     def merge_folder(self, folder_path, output_path):
         """
@@ -23,6 +28,9 @@ class Merger:
         """
         # Create CSVs for each sheet in the directory
         files = easyio.get_files(folder_path, '.csv')
+        if output_path in files:
+            files.remove(output_path)
+
         self.merge_files(files, output_path)
 
     def get_headers_and_data(self, file):
@@ -63,10 +71,11 @@ class Merger:
 
         # For each file
         for idx, path in enumerate(files):
+            print(str(int(idx * 100 / len(files))) + '%')
             # Split content in headers and data
-            headers, lines = self.get_headers_and_data(path)
+            headers, rows = self.get_headers_and_data(path)
 
-            # Indices
+            # Indices (fixed -> header index)
             fixed_column_indices =\
                 self.build_indices(headers, self.fixed_columns)
             merge_column_indices =\
@@ -78,61 +87,93 @@ class Merger:
             merge_indices = merge_column_indices.values()
             ignore_indices = ignore_column_indices.values()
 
-            new_indices = [i for i, x in enumerate(headers)
-                           if i not in fixed_indices
-                           and i not in merge_indices
-                           and i not in ignore_indices]
+            # Indices (header -> fixed index)
+            new_column_indices = [i for i, x in enumerate(headers)
+                                  if i not in fixed_indices
+                                  and i not in merge_indices
+                                  and i not in ignore_indices]
 
-            # Get headers for new data
-            new_columns = ["%s - %s" %
-                           (unicode(idx + 1), unicode(headers[i]))
-                           for i in new_indices]
+            if any([i == -1 for i in new_column_indices]):
+                if not self.expect_new_columns:
+                    print('ERROR EN FORMATO',
+                          'NO SE ESPERAN NUEVAS COLUMNAS:', path)
 
-            if len(new_columns) > 0:
-                print('ERROR EN FORMATO: %s' % path)
+            regex_match = self.new_columns_regex.search(path)
+            for i in new_column_indices:
+                new_column_name =\
+                    u' '.join([regex_match.group(),
+                               unicode(headers[i])])\
+                    if regex_match else headers[i]
 
-            # Append to the definition of all headers
-            columns.append(new_columns)
+                headers[i] = new_column_name.strip()
 
-            # For each line of data
-            for line in lines:
+                if easyio.match(headers[i], columns) == -1:
+                    columns.append(new_column_name.strip())
+
+            column_match = [easyio.match(c, headers) for c in columns]
+
+            # For each row of data
+            for row in rows:
                 # Get the unique identifier (append all fixed columns)
                 identifier = self.separator.join(
-                    [line[fixed_column_indices[i]]
+                    [row[fixed_column_indices[i]]
                      if i in fixed_column_indices else u''
                      for i, x in enumerate(self.fixed_columns)])
 
                 merge =\
-                    [line[merge_column_indices[i]]
+                    [row[merge_column_indices[i]]
                      if i in merge_column_indices else u''
                      for i, x in enumerate(self.merge_columns)]
 
-                new_data = [line[i] for i in new_indices]
+                new_data = [row[i] if i != -1 else u'' for i in column_match]
 
                 if identifier not in data:
                     data[identifier] = []
-                    merged_data[identifier] = merge
+                    merged_data[identifier] = []
+
+                if len(data[identifier]) < len(columns):
+                    data[identifier].extend(
+                        [u''] * (len(columns) -
+                                 len(data[identifier])))
+
+                if len(merged_data[identifier]) < len(self.merge_columns):
+                    merged_data[identifier].extend(
+                        [u''] * (len(self.merge_columns) -
+                                 len(merged_data[identifier])))
 
                 # Add the new data
-                data[identifier].append(new_data)
+                for i, x in enumerate(new_data):
+                    if len(x) > 0:
+                        data[identifier][i] = x
+
                 for i, x in enumerate(merge):
                     if len(x) > 0:
                         merged_data[identifier][i] = x
 
         # Build content for CSV
         lines = []
-        lines.append(easyio.quote(
-                     easyio.flatten(
-                         [self.fixed_columns, self.merge_columns, columns],
-                         self.separator),
-                     self.separator))
+
+        headers = []
+        if len(self.fixed_columns) > 0:
+            headers.extend(self.fixed_columns)
+        if len(self.merge_columns) > 0:
+            headers.extend(self.merge_columns)
+        if len(columns) > 0:
+            headers.extend(columns)
+
+        lines.append(easyio.quote(self.separator.join(headers),
+                                  self.separator))
 
         for key in data:
+            row_data = [key]
+            if len(merged_data[key]) > 0:
+                row_data.extend(merged_data[key])
+            if len(data[key]) > 0:
+                row_data.extend(data[key])
+
             lines.append(
-                easyio.quote(
-                    easyio.flatten([key,
-                                    merged_data[key],
-                                    data[key]])))
+                easyio.quote(self.separator.join(row_data),
+                             self.separator))
 
         content = '\n'.join(lines)
 
@@ -153,7 +194,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--test',
                         dest='test',
-                        help='Wether to do Testing and Exit',
+                        help='Whether to do Testing and Exit',
                         default=False)
 
     parser.add_argument('--folders',
