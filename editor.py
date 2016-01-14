@@ -152,8 +152,7 @@ class Editor:
             if key < len(current_headers):
                 current_headers[key] = headers_dict[key]
 
-        lines[0] = easyio.quote(self.separator.join(current_headers),
-                                self.separator)
+        lines[0] = easyio.merge(current_headers, self.separator)
         content = '\n'.join(lines)
         return content
 
@@ -206,8 +205,7 @@ class Editor:
                     if easyio.match(current_headers[i], ignore_columns) != -1:
                         column_lock[i] = True
 
-        lines.insert(0, easyio.quote(self.separator.join(current_headers),
-                                     self.separator))
+        lines.insert(0, easyio.merge(current_headers, self.separator))
         content = '\n'.join(lines)
         return content
 
@@ -226,8 +224,7 @@ class Editor:
         for i in range(len(lines)):
             extra = max_columns - len(data[i])
             data[i].extend([''] * extra)
-            lines[i] = easyio.quote(self.separator.join(data[i]),
-                                    self.separator)
+            lines[i] = easyio.merge(data[i], self.separator)
 
         content = '\n'.join(lines)
         return content
@@ -242,7 +239,7 @@ class Editor:
             for j in range(len(data)):
                 if easyio.match(data[j], unwanted_content) != -1:
                     data[j] = ''
-            lines[i] = easyio.quote(self.separator.join(data), self.separator)
+            lines[i] = easyio.merge(data, self.separator)
 
         content = '\n'.join(lines)
         return content
@@ -250,20 +247,35 @@ class Editor:
     def _remove_empty_columns(self, path, content):
         """
         Internal function to remove empty columns
+
+        >>> content='a,b,,,e\\n1,2,,,5'
+        >>> e = Editor()
+        >>> e._remove_empty_columns('', content)
+        '"a","b","e"\\n"1","2","5"'
         """
         lines = content.split('\n')
         all_data = [easyio.split(line, self.separator) for line in lines]
         has_content = set()
         for data in all_data:
-            for i in range(len(data)):
-                if len(data[i].strip()) > 0:
+            for i, x in enumerate(data):
+                if len(x.strip()) > 0:
                     has_content.add(i)
 
         new_lines = []
         for data in all_data:
-            new_data = [data[i] for i in range(len(data)) if i in has_content]
-            new_lines.append(easyio.quote(self.separator.join(new_data),
-                                          self.separator))
+            new_data = [x for i, x in enumerate(data) if i in has_content]
+            new_lines.append(easyio.merge(new_data, self.separator))
 
         content = '\n'.join(new_lines)
         return content
+
+
+def test():
+    print('Testing...')
+    import doctest
+    doctest.testmod()
+    print('Done')
+
+
+if __name__ == '__main__':
+    test()

@@ -103,11 +103,11 @@ def process(folders, output,
         fixed_columns, merge_columns, ignore_columns)
 
     for folder in folders:
-        # csvs = sp.split_folder(folder)
-        # ed.process(folder)
+        csvs = sp.split_folder(folder)
+        ed.process(folder)
         mg.merge_folder(folder, output)
-        # for files in csvs:
-        #     easyio.remove(csvs[files])
+        for files in csvs:
+            easyio.remove(csvs[files])
 
 
 def tryout(folder, output):

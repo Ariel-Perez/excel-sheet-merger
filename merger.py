@@ -50,14 +50,79 @@ class Merger:
         """
         Gets a dictionary (column: match_id)
         for all columns with a match (!= -1)
-        """
-        matches = {}
-        for i, header in enumerate(headers):
-            match = easyio.match(header, lookups)
-            if match != -1:
-                matches[match] = i
 
+        >>> m = Merger()
+        >>> headers = ['Id', 'Rut', 'Column1', 'Column2']
+        >>> lookups = ['ID', 'RUT', 'COLUMN2']
+        >>> expected_result = {0: 0, 1: 1, 2: -1, 3: 2}
+        >>> m.build_indices(headers, lookups) == expected_result
+        True
+        """
+        matches = {i: easyio.match(header, lookups)
+                   for i, header in enumerate(headers)}
         return matches
+
+    def build_column_indices(self, headers, columns, prepend):
+        """
+        Gets a dictionary for all columns
+        (Output Column Index -> File Column Index)
+
+        Adds new columns to the definition if need be
+
+        >>> fc = ['A', 'B']
+        >>> columns = ['A', 'B']
+        >>> m = Merger(fixed_columns=fc, expect_new_columns=True)
+        >>> indices = m.build_column_indices(['A', 'B', 'C'], columns, '1')
+        >>> expected_result = {0:0, 1:1, 2:2}
+        >>> indices == expected_result
+        True
+
+        >>> indices = m.build_column_indices(['C', 'B', 'A', 'C'],\
+         columns, '1')
+        >>> expected_result = {0:2, 1:1, 2:0, 3:2}
+        >>> indices == expected_result
+        True
+
+        >>> columns
+        ['A', 'B', '1 C']
+        """
+        indices = self.build_indices(headers, columns)
+
+        for i, header in enumerate(headers):
+            if indices[i] == -1:
+                if easyio.match(header, self.ignore_columns) != -1:
+                    continue
+
+                column_name = (' '.join([prepend, headers[i]])).strip()
+                match = easyio.match(column_name, columns)
+                if match != -1:
+                    indices[i] = match
+                else:
+                    if not self.expect_new_columns:
+                        print('ERROR EN FORMATO',
+                              'NO SE ESPERAN NUEVAS COLUMNAS:')
+                    indices[i] = len(columns)
+                    columns.append(column_name)
+
+        return indices
+
+    def build_data(self, row, indices, columns):
+        """
+        Build data from a row and indices and columns
+
+        >>> row = ['1', '2', 'D']
+        >>> indices = {0: 1, 1: 2, 2:0}
+        >>> columns = ['A', 'B', 'C', 'D']
+        >>> m = Merger()
+        >>> m.build_data(row, indices, columns)
+        ['D', '1', '2', u'']
+        """
+        data = [u''] * len(columns)
+        for i in indices:
+            if indices[i] != -1 and len(row[i]) > 0:
+                data[indices[i]] = row[i]
+
+        return data
 
     def merge_files(self, files, output):
         """
@@ -65,9 +130,8 @@ class Merger:
         Matches them according to the fixed_columns
         Leaves output csv at output argument
         """
+        columns = self.fixed_columns[:] + self.merge_columns[:]
         data = {}
-        merged_data = {}
-        columns = []
 
         # For each file
         for idx, path in enumerate(files):
@@ -76,104 +140,40 @@ class Merger:
             headers, rows = self.get_headers_and_data(path)
 
             # Indices (fixed -> header index)
-            fixed_column_indices =\
-                self.build_indices(headers, self.fixed_columns)
-            merge_column_indices =\
-                self.build_indices(headers, self.merge_columns)
-            ignore_column_indices =\
-                self.build_indices(headers, self.ignore_columns)
-
-            fixed_indices = fixed_column_indices.values()
-            merge_indices = merge_column_indices.values()
-            ignore_indices = ignore_column_indices.values()
-
-            # Indices (header -> fixed index)
-            new_column_indices = [i for i, x in enumerate(headers)
-                                  if i not in fixed_indices
-                                  and i not in merge_indices
-                                  and i not in ignore_indices]
-
-            if any([i == -1 for i in new_column_indices]):
-                if not self.expect_new_columns:
-                    print('ERROR EN FORMATO',
-                          'NO SE ESPERAN NUEVAS COLUMNAS:', path)
-
             regex_match = self.new_columns_regex.search(path)
-            for i in new_column_indices:
-                new_column_name =\
-                    u' '.join([regex_match.group(),
-                               unicode(headers[i])])\
-                    if regex_match else headers[i]
+            prepend = regex_match.group() if regex_match else u''
+            indices = self.build_column_indices(headers, columns, prepend)
 
-                headers[i] = new_column_name.strip()
-
-                if easyio.match(headers[i], columns) == -1:
-                    columns.append(new_column_name.strip())
-
-            column_match = [easyio.match(c, headers) for c in columns]
-
+            # print(columns)
             # For each row of data
             for row in rows:
-                # Get the unique identifier (append all fixed columns)
-                identifier = self.separator.join(
-                    [row[fixed_column_indices[i]]
-                     if i in fixed_column_indices else u''
-                     for i, x in enumerate(self.fixed_columns)])
+                # Get the data for each column
+                new_data = self.build_data(row, indices, columns)
 
-                merge =\
-                    [row[merge_column_indices[i]]
-                     if i in merge_column_indices else u''
-                     for i, x in enumerate(self.merge_columns)]
-
-                new_data = [row[i] if i != -1 else u'' for i in column_match]
+                # Get the unique identifier
+                identifier_data = new_data[0:len(self.fixed_columns)]
+                identifier = easyio.merge(identifier_data, self.separator)
 
                 if identifier not in data:
-                    data[identifier] = []
-                    merged_data[identifier] = []
+                    data[identifier] = new_data
 
-                if len(data[identifier]) < len(columns):
-                    data[identifier].extend(
-                        [u''] * (len(columns) -
-                                 len(data[identifier])))
-
-                if len(merged_data[identifier]) < len(self.merge_columns):
-                    merged_data[identifier].extend(
-                        [u''] * (len(self.merge_columns) -
-                                 len(merged_data[identifier])))
-
-                # Add the new data
-                for i, x in enumerate(new_data):
-                    if len(x) > 0:
-                        data[identifier][i] = x
-
-                for i, x in enumerate(merge):
-                    if len(x) > 0:
-                        merged_data[identifier][i] = x
+                else:
+                    if len(new_data) > len(data[identifier]):
+                        data[identifier].extend([u''] *
+                                                (len(new_data) -
+                                                 len(data[identifier])))
+                    for i, x in enumerate(new_data):
+                        if len(x) > 0:
+                            data[identifier][i] = x
 
         # Build content for CSV
         lines = []
 
-        headers = []
-        if len(self.fixed_columns) > 0:
-            headers.extend(self.fixed_columns)
-        if len(self.merge_columns) > 0:
-            headers.extend(self.merge_columns)
-        if len(columns) > 0:
-            headers.extend(columns)
-
-        lines.append(easyio.quote(self.separator.join(headers),
-                                  self.separator))
+        headers = columns[:]
+        lines.append(easyio.merge(headers, self.separator))
 
         for key in data:
-            row_data = [key]
-            if len(merged_data[key]) > 0:
-                row_data.extend(merged_data[key])
-            if len(data[key]) > 0:
-                row_data.extend(data[key])
-
-            lines.append(
-                easyio.quote(self.separator.join(row_data),
-                             self.separator))
+            lines.append(easyio.merge(data[key], self.separator))
 
         content = '\n'.join(lines)
 

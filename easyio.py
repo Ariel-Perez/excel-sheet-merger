@@ -105,6 +105,30 @@ def unquote(data):
     return data
 
 
+def _next_term(line, separator=',', quote='"'):
+    if line[0] == quote:
+        end = line.index(quote, 1)
+        term = line[1:end]
+
+        if separator in line[end:]:
+            start = line.index(separator, end) + 1
+            line = line[start:]
+        else:
+            line = ''
+    else:
+        if separator in line:
+            end = line.index(separator)
+            term = line[0:end]
+
+            start = end + 1
+            line = line[start:]
+        else:
+            term = line
+            line = ''
+
+    return term, line
+
+
 def split(line, separator=','):
     """
     Splits a line of CSV into its values and unquotes it.
@@ -113,8 +137,25 @@ def split(line, separator=','):
     >>> split(line)
     ['Hello', 'world']
     """
-    data = line.split(separator)
-    return [unquote(x) for x in data]
+    data = []
+    quote = '"'
+    while len(line) > 0:
+        term, line = _next_term(line, separator, quote)
+        data.append(unquote(term))
+
+    return data
+
+
+def merge(data, separator=','):
+    """
+    Merges data into a CSV string and quotes it.
+
+    >>> data = ['Hello', 'wor,ld']
+    >>> merge(data)
+    u'"Hello","wor,ld"'
+    """
+    s = separator.join(['"%s"' % unicode(x) for x in data])
+    return s
 
 
 def match(text, possibilities):
@@ -168,3 +209,6 @@ def test():
     print('Testing...')
     doctest.testmod()
     print('Done')
+
+if __name__ == '__main__':
+    test()
